@@ -1,26 +1,183 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
+  --bg: #0e0e0e;
+  --surface: #161616;
+  --surface2: #1e1e1e;
+  --surface3: #262626;
+  --border: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.1);
+  --text: #f2f2f2;
+  --text-2: #888888;
+  --text-3: #4a4a4a;
+  --accent: #ff4000;
+  --accent-dim: rgba(255, 64, 0, 0.12);
+  --accent-glow: rgba(255, 64, 0, 0.06);
+  --success: #3ecf8e;
+  --warning: #f59e0b;
+  --danger: #f87171;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --background: #0e0e0e;
+  --foreground: #f2f2f2;
+  --card: #161616;
+  --card-foreground: #f2f2f2;
+  --popover: #1e1e1e;
+  --popover-foreground: #f2f2f2;
+  --primary: #ff4000;
+  --primary-foreground: #fff;
+  --secondary: #1e1e1e;
+  --secondary-foreground: #f2f2f2;
+  --muted: #1e1e1e;
+  --muted-foreground: #888;
+  --destructive: #f87171;
+  --input: rgba(255,255,255,0.08);
+  --ring: #ff4000;
 }
 
 @theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@keyframes rippl-ai-shine {
+  0% {
+    transform: scale(1) rotate(0deg);
+    filter: drop-shadow(0 0 0 rgba(255, 200, 150, 0.0));
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.25) rotate(12deg);
+    filter: drop-shadow(0 0 12px rgba(255, 200, 150, 0.7));
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    filter: drop-shadow(0 0 0 rgba(255, 200, 150, 0.0));
+    opacity: 0.85;
   }
 }
 
+.rippl-ai-shine {
+  animation: rippl-ai-shine 1.4s ease-in-out infinite;
+}
+
+@keyframes rippl-type {
+  0%, 24% { transform: translateY(0); }
+  25%, 49% { transform: translateY(-1.25rem); }
+  50%, 74% { transform: translateY(-2.5rem); }
+  75%, 99% { transform: translateY(-3.75rem); }
+  100% { transform: translateY(-5rem); }
+}
+
+.animate-rippl-type {
+  animation: rippl-type 16s ease-in-out infinite;
+}
+
+/* Modal enter animations */
+@keyframes modal-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-content-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.animate-modal-overlay {
+  animation: modal-overlay-in 0.25s ease-out forwards;
+}
+
+.animate-modal-content {
+  animation: modal-content-in 0.25s ease-out forwards;
+}
+
+@keyframes modal-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-modal-sheet {
+  animation: modal-sheet-in 0.28s ease-out forwards;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+}
+
+/* Typography — Inter only: 11, 12, 13, 14, 16, 20, 28, 32px; weights 400, 500, 600, 700 */
+.text-11 { font-size: 11px; }
+.text-12 { font-size: 12px; }
+.text-13 { font-size: 13px; }
+.text-14 { font-size: 14px; }
+.text-16 { font-size: 16px; }
+.text-20 { font-size: 20px; }
+.text-28 { font-size: 28px; }
+.text-32 { font-size: 32px; }
+
+.rippl-input {
+  background: var(--surface);
+  border: 1px solid var(--input);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text);
+  width: 100%;
+  transition: all 0.15s ease-out;
+}
+.rippl-input::placeholder {
+  color: var(--text-3);
+}
+.rippl-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.dark {
+  --background: #0e0e0e;
+  --foreground: #f2f2f2;
 }

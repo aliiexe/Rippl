@@ -1,6 +1,32 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
+# -----------------------------------------------------------------------------
+# Secrets, API keys, and credentials (never commit these)
+# -----------------------------------------------------------------------------
+.env
+.env.*
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+*.pem
+*.key
+*.p12
+*.pfx
+*credentials*
+*secrets*
+.secret
+.secrets
+config.local.*
+*.local.js
+*.local.ts
+
+# -----------------------------------------------------------------------------
+# Dependencies
+# -----------------------------------------------------------------------------
 /node_modules
 /.pnp
 .pnp.*
@@ -10,32 +36,52 @@
 !.yarn/releases
 !.yarn/versions
 
-# testing
-/coverage
-
+# -----------------------------------------------------------------------------
+# Build and output
+# -----------------------------------------------------------------------------
 # next.js
 /.next/
 /out/
-
 # production
 /build
+# typescript
+*.tsbuildinfo
+next-env.d.ts
 
-# misc
-.DS_Store
-*.pem
+# -----------------------------------------------------------------------------
+# Testing and coverage
+# -----------------------------------------------------------------------------
+/coverage
+*.lcov
 
-# debug
+# -----------------------------------------------------------------------------
+# Debug and logs
+# -----------------------------------------------------------------------------
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
+logs/
 
-# env files (can opt-in for committing if needed)
-.env*
+# -----------------------------------------------------------------------------
+# OS and editor
+# -----------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
 
-# vercel
+# -----------------------------------------------------------------------------
+# Vercel and deployment
+# -----------------------------------------------------------------------------
 .vercel
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# -----------------------------------------------------------------------------
+# Optional: uncomment to ignore Cursor/IDE project state (may contain local paths)
+# .cursor/
