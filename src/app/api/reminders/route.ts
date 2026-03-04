@@ -24,6 +24,7 @@ export async function GET() {
     id: r.id,
     type: r.type,
     title: r.title ?? "—",
+    detail: r.detail ?? null,
     recipients: r.payload?.recipient_count ?? r.payload?.recipientCount ?? r.payload?.recipients ?? "—",
     scheduledFor: r.scheduled_at,
     status: r.status,

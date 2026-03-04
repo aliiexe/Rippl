@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
@@ -12,12 +13,14 @@ import { CustomToggle } from "@/components/ui/custom-toggle";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { triggerRemindersRefresh } from "@/lib/reminders-events";
 
 const COMPOSE_DRAFT_KEY = "rippl-compose-draft";
 
 type ComposeDraft = {
   subject: string;
   body: string;
+  signature?: string;
   selectedIds: string[];
   scheduleOn: boolean;
   scheduledAt: string | null;
@@ -74,14 +77,17 @@ export default function ComposePage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [signature, setSignature] = useState("");
   const [scheduleOn, setScheduleOn] = useState(false);
   const [scheduledAt, setScheduledAt] = useState<Date | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendProgress, setSendProgress] = useState<{ current: number; total: number } | null>(null);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const sendRef = useRef<() => void>(() => {});
   const skipSaveRef = useRef(true);
+  const initialSignatureRef = useRef<string>("");
   const lastDraftRef = useRef<ComposeDraft>({
     subject: "",
     body: "",
@@ -96,6 +102,10 @@ export default function ComposePage() {
     if (draft) {
       setSubject(draft.subject ?? "");
       setBody(draft.body ?? "");
+      if (draft.signature != null) {
+        setSignature(draft.signature ?? "");
+        initialSignatureRef.current = draft.signature ?? "";
+      }
       const ids = [...(draft.selectedIds ?? [])];
       if (preselectedGroup && !ids.includes(preselectedGroup)) ids.push(preselectedGroup);
       setSelectedIds(new Set(ids));
@@ -103,6 +113,17 @@ export default function ComposePage() {
       setScheduledAt(draft.scheduledAt ? new Date(draft.scheduledAt) : null);
     } else if (preselectedGroup) {
       setSelectedIds((prev) => new Set(prev).add(preselectedGroup));
+    }
+    if (draft?.signature == null) {
+      fetch("/api/preferences")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: { email_signature?: string } | null) => {
+          if (d?.email_signature != null) {
+            setSignature(d.email_signature);
+            initialSignatureRef.current = d.email_signature;
+          }
+        })
+        .catch(() => {});
     }
     const t = setTimeout(() => {
       skipSaveRef.current = false;
@@ -139,6 +160,7 @@ export default function ComposePage() {
     const draft: ComposeDraft = {
       subject,
       body,
+      signature: signature || undefined,
       selectedIds: Array.from(selectedIds),
       scheduleOn,
       scheduledAt: scheduledAt ? scheduledAt.toISOString() : null,
@@ -149,7 +171,7 @@ export default function ComposePage() {
     return () => {
       saveDraft(lastDraftRef.current);
     };
-  }, [subject, body, selectedIds, scheduleOn, scheduledAt]);
+  }, [subject, body, signature, selectedIds, scheduleOn, scheduledAt]);
 
   // Persist draft on tab/window close (pagehide); in-app navigation is covered by effect cleanup above
   useEffect(() => {
@@ -192,6 +214,7 @@ export default function ComposePage() {
       toast("Pick a date and time for scheduled send.");
       return;
     }
+    const combinedBody = body.trim() + (signature.trim() ? "\n\n" + signature.trim() : "");
     setSending(true);
     setSendProgress({ current: 0, total: totalRecipients });
     try {
@@ -200,7 +223,8 @@ export default function ComposePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           subject: subject.trim(),
-          body: body.trim(),
+          body: combinedBody,
+          bodyIncludesSignature: true,
           groupIds: Array.from(selectedIds),
           scheduleAt: scheduleOn && scheduledAt ? scheduledAt.toISOString() : null,
         }),
@@ -214,8 +238,17 @@ export default function ComposePage() {
         toast(msg);
         return;
       }
+      if (signature.trim() && signature.trim() !== initialSignatureRef.current) {
+        initialSignatureRef.current = signature.trim();
+        fetch("/api/preferences", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email_signature: signature.trim() }),
+        }).catch(() => {});
+      }
       if (data.scheduled) {
-        toast("Email scheduled.");
+        toast(data.addedToCalendar ? "Email scheduled and added to Google Calendar." : "Email scheduled.");
+        triggerRemindersRefresh();
       } else {
         toast(`Sent to ${data.recipientCount ?? totalRecipients} people.`);
       }
@@ -297,24 +330,35 @@ export default function ComposePage() {
           />
         </div>
 
-        <div className="relative px-5 py-4 flex-1 min-h-[240px]">
-          <button
-            type="button"
-            onClick={() => setAiOpen(true)}
-            className="absolute top-4 right-5 z-10 inline-flex items-center gap-1 text-[12px] font-semibold text-[#ff4000] hover:text-[#ff6633] cursor-pointer px-2 py-1 rounded-[999px] hover:bg-[rgba(255,64,0,0.08)] transition-all shadow-[0_0_0_1px_rgba(255,64,0,0.35)]"
-          >
-            <span className="relative flex h-5 w-5 items-center justify-center rounded-full bg-[rgba(255,64,0,0.16)]">
-              <Sparkles className="h-3 w-3 text-[#ffe7c2] rippl-ai-shine" strokeWidth={1.6} />
-            </span>
-            <span>AI</span>
-          </button>
-          <Textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="Write your message..."
-            className="min-h-[240px] resize-none bg-transparent border-none text-[13px] leading-relaxed placeholder:text-[#4a4a4a] px-0"
-          />
-          <p className="text-[11px] text-[#4a4a4a] mt-1">{"{{name}}"} → replaced with each recipient&apos;s name</p>
+        <div className="relative px-5 py-4 flex-1 min-h-0 flex flex-col gap-4">
+          <div className="flex-1 min-h-[320px] flex flex-col">
+            <button
+              type="button"
+              onClick={() => setAiOpen(true)}
+              className="absolute top-4 right-5 z-10 inline-flex items-center gap-1 text-[12px] font-semibold text-[#ff4000] hover:text-[#ff6633] cursor-pointer px-2 py-1 rounded-[999px] hover:bg-[rgba(255,64,0,0.08)] transition-all shadow-[0_0_0_1px_rgba(255,64,0,0.35)]"
+            >
+              <span className="relative flex h-5 w-5 items-center justify-center rounded-full bg-[rgba(255,64,0,0.16)]">
+                <Sparkles className="h-3 w-3 text-[#ffe7c2] rippl-ai-shine" strokeWidth={1.6} />
+              </span>
+              <span>AI</span>
+            </button>
+            <Textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="Write your message..."
+              className="min-h-[320px] flex-1 resize-y bg-transparent border-none text-[13px] leading-relaxed placeholder:text-[#4a4a4a] px-0"
+            />
+            <p className="text-[11px] text-[#4a4a4a] mt-1">{"{{name}}"} → replaced with each recipient&apos;s name</p>
+          </div>
+          <div className="border-t border-[rgba(255,255,255,0.06)] pt-4">
+            <label className="block text-[12px] font-medium text-[#888] mb-1.5">Signature</label>
+            <Textarea
+              value={signature}
+              onChange={(e) => setSignature(e.target.value)}
+              placeholder="Add a signature in Settings, or edit it here. It will be appended to every email."
+              className="min-h-[100px] resize-y bg-transparent border border-[rgba(255,255,255,0.08)] rounded-[8px] text-[13px] leading-relaxed placeholder:text-[#4a4a4a] px-3 py-2"
+            />
+          </div>
         </div>
 
         {sending && sendProgress ? (
@@ -358,6 +402,7 @@ export default function ComposePage() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={() => setPreviewOpen(true)}
                 className="text-[13px] font-medium text-[#888] hover:text-[#f2f2f2] transition-colors"
               >
                 Preview
@@ -404,6 +449,63 @@ export default function ComposePage() {
           )}
         </div>
       </div>
+
+      {previewOpen && (() => {
+        const combinedBody = body.trim() + (signature.trim() ? "\n\n" + signature.trim() : "");
+        const modal = (
+          <>
+            <div
+              className="rippl-modal-overlay z-50 bg-black/60 backdrop-blur-sm animate-modal-overlay"
+              style={{ position: "fixed", inset: 0 }}
+              onClick={() => setPreviewOpen(false)}
+            />
+            <div
+              className="rippl-modal-center z-50 p-4 pointer-events-none"
+              style={{
+                position: "fixed",
+                inset: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <div className="w-full max-w-[560px] max-h-[90vh] overflow-y-auto pointer-events-auto bg-[#161616] border border-[rgba(255,255,255,0.08)] rounded-[18px] p-6 shadow-xl">
+                <h3 className="text-[16px] font-semibold text-[#f2f2f2]">Email preview</h3>
+                <p className="text-[12px] text-[#888] mt-0.5">This is how your email will look when sent.</p>
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <p className="text-[11px] font-medium text-[#4a4a4a] uppercase tracking-wider mb-1">Subject</p>
+                    <p className="text-[14px] text-[#f2f2f2]">{subject || "(no subject)"}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-medium text-[#4a4a4a] uppercase tracking-wider mb-1">To</p>
+                    <p className="text-[13px] text-[#888]">{recipients.length} recipient{recipients.length !== 1 ? "s" : ""}</p>
+                    {recipients.length > 0 && (
+                      <p className="text-[12px] text-[#888] mt-0.5 truncate">{summaryLine}</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-medium text-[#4a4a4a] uppercase tracking-wider mb-1">Message</p>
+                    <div className="bg-[#1e1e1e] border border-[rgba(255,255,255,0.06)] rounded-[8px] px-3 py-3 text-[13px] text-[#f2f2f2] whitespace-pre-wrap min-h-[120px]">
+                      {combinedBody || "(empty)"}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end mt-6 pt-4 border-t border-[rgba(255,255,255,0.06)]">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewOpen(false)}
+                    className="bg-[#1e1e1e] hover:bg-[#262626] border border-[rgba(255,255,255,0.08)] text-[#f2f2f2] text-[13px] font-medium px-4 py-1.5 rounded-[8px]"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+        return typeof document !== "undefined" ? createPortal(modal, document.body) : null;
+      })()}
 
       {aiOpen && (
         <AISheet

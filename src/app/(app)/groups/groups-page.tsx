@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import { GroupsTopbarAction } from "./groups-topbar";
@@ -398,21 +399,29 @@ function GroupFormModal({
     }
   };
 
-  if (loading) {
-    return (
-      <>
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm animate-modal-overlay" onClick={onClose} />
-        <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-[560px] -translate-x-1/2 -translate-y-1/2 bg-[#161616] border border-[rgba(255,255,255,0.08)] rounded-[18px] p-6 animate-modal-content">
+  const overlay = (
+    <div
+      className="rippl-modal-overlay z-50 bg-black/60 backdrop-blur-sm animate-modal-overlay"
+      style={{ position: "fixed", inset: 0 }}
+      onClick={onClose}
+    />
+  );
+  const centerWrapper = (
+    <div
+      className="rippl-modal-center z-50 p-4 pointer-events-none"
+      style={{
+        position: "fixed",
+        inset: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <div className="w-full max-w-[560px] max-h-[90vh] overflow-y-auto pointer-events-auto bg-[#161616] border border-[rgba(255,255,255,0.08)] rounded-[18px] p-6 shadow-xl animate-modal-content">
+        {loading ? (
           <div className="h-8 bg-[#1e1e1e] animate-pulse rounded-[8px] w-1/2" />
-        </div>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm animate-modal-overlay" onClick={onClose} />
-      <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-[560px] -translate-x-1/2 -translate-y-1/2 bg-[#161616] border border-[rgba(255,255,255,0.08)] rounded-[18px] p-6 shadow-xl max-h-[90vh] overflow-y-auto animate-modal-content">
+        ) : (
+          <>
         <h3 className="text-[16px] font-semibold text-[#f2f2f2]">{group ? "Edit Group" : "New Group"}</h3>
         <p className="text-[13px] text-[#888] mt-0.5">{group ? "Update group details and members." : "Create a group and add members."}</p>
         <form onSubmit={handleSubmit} className="mt-5 space-y-5">
@@ -488,7 +497,17 @@ function GroupFormModal({
             </button>
           </div>
         </form>
+          </>
+        )}
       </div>
-    </>
+    </div>
+  );
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <>
+      {overlay}
+      {centerWrapper}
+    </>,
+    document.body
   );
 }

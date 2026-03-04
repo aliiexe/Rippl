@@ -34,9 +34,9 @@ export function CustomDatePicker({
   placement?: "top" | "bottom";
 }) {
   const [open, setOpen] = useState(false);
-  const [viewMonth, setViewMonth] = useState(value ?? new Date());
-  const [hours, setHours] = useState(value ? value.getHours() : 12);
-  const [minutes, setMinutes] = useState(value ? value.getMinutes() : 0);
+  const [viewMonth, setViewMonth] = useState(() => value ?? new Date());
+  const [hours, setHours] = useState(() => (value ? value.getHours() : new Date().getHours()));
+  const [minutes, setMinutes] = useState(() => (value ? value.getMinutes() : new Date().getMinutes()));
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -46,6 +46,25 @@ export function CustomDatePicker({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // When opening with no value selected, default to current date and time
+  useEffect(() => {
+    if (open && !value) {
+      const n = new Date();
+      setViewMonth(n);
+      setHours(n.getHours());
+      setMinutes(n.getMinutes());
+    }
+  }, [open, value]);
+
+  // Sync internal state when value prop changes
+  useEffect(() => {
+    if (value) {
+      setViewMonth(value);
+      setHours(value.getHours());
+      setMinutes(value.getMinutes());
+    }
+  }, [value]);
 
   const start = startOfWeek(startOfMonth(viewMonth));
   const end = endOfWeek(endOfMonth(viewMonth));

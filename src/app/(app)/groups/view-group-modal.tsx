@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
+import toast from "react-hot-toast";
 
 type ViewGroupModalProps = {
   groupId: string | null;
@@ -26,6 +28,7 @@ export function ViewGroupModal({ groupId, onClose, onEdit }: ViewGroupModalProps
   const [members, setMembers] = useState<Member[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(!!groupId);
+  const [shareLoading, setShareLoading] = useState(false);
 
   useEffect(() => {
     if (!groupId) return;
@@ -45,6 +48,54 @@ export function ViewGroupModal({ groupId, onClose, onEdit }: ViewGroupModalProps
       .catch(() => setLoading(false));
   }, [groupId]);
 
+  const handleShareLink = async () => {
+    if (!groupId) return;
+    try {
+      setShareLoading(true);
+      const res = await fetch(`/api/groups/${groupId}/share`, { method: "POST" });
+      const data = (await res.json().catch(() => ({}))) as { url?: string; expiresAt?: string; error?: string };
+      if (!res.ok || !data.url) {
+        throw new Error(data.error || "Could not create share link.");
+      }
+      const url = String(data.url);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(url);
+        toast("Share link copied to clipboard.");
+      } else {
+        window.prompt("Share this link:", url);
+      }
+    } catch {
+      toast("Could not create share link.");
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const handleExportCsv = () => {
+    if (!group || members.length === 0) {
+      toast("No members to export.");
+      return;
+    }
+    const header = "Name,Email";
+    const rows = members.map((m) => {
+      const name = (m.name ?? "").replace(/\"/g, '\"\"');
+      const email = m.email.replace(/\"/g, '\"\"');
+      return `\"${name}\",\"${email}\"`;
+    });
+    const blob = new Blob([`${header}\n${rows.join("\n")}`], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${group.name || "group"}-members.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast("CSV downloaded.");
+  };
+
   const filtered = search.trim()
     ? members.filter(
         (m) =>
@@ -55,10 +106,25 @@ export function ViewGroupModal({ groupId, onClose, onEdit }: ViewGroupModalProps
 
   if (!groupId) return null;
 
-  return (
+  const modal = (
     <>
-      <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm animate-modal-overlay" onClick={onClose} />
-      <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-[640px] -translate-x-1/2 -translate-y-1/2 bg-[#161616] border border-[rgba(255,255,255,0.08)] rounded-[18px] p-6 shadow-xl max-h-[90vh] overflow-y-auto animate-modal-content">
+      <div
+        className="rippl-modal-overlay z-50 bg-black/60 backdrop-blur-sm animate-modal-overlay"
+        style={{ position: "fixed", inset: 0 }}
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div
+        className="rippl-modal-center z-50 p-4 pointer-events-none"
+        style={{
+          position: "fixed",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <div className="w-full max-w-[640px] max-h-[90vh] overflow-y-auto pointer-events-auto bg-[#161616] border border-[rgba(255,255,255,0.08)] rounded-[18px] p-6 shadow-xl animate-modal-content z-50">
         {loading ? (
           <div className="h-32 bg-[#1e1e1e] animate-pulse rounded-[10px]" />
         ) : group ? (
@@ -106,7 +172,24 @@ export function ViewGroupModal({ groupId, onClose, onEdit }: ViewGroupModalProps
                 )}
               </div>
             </div>
-            <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-[rgba(255,255,255,0.06)]">
+            <div className="flex justify-between gap-3 mt-6 pt-4 border-t border-[rgba(255,255,255,0.06)]">
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportCsv}
+                  className="bg-[#1e1e1e] hover:bg-[#262626] border border-[rgba(255,255,255,0.08)] text-[#f2f2f2] text-[12px] font-medium px-3 py-1.5 rounded-[8px] transition-all duration-150"
+                >
+                  Export CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={handleShareLink}
+                  disabled={shareLoading}
+                  className="bg-[#1e1e1e] hover:bg-[#262626] border border-[rgba(255,255,255,0.08)] text-[#f2f2f2] text-[12px] font-medium px-3 py-1.5 rounded-[8px] transition-all duration-150 disabled:opacity-50"
+                >
+                  {shareLoading ? "Creating link…" : "Copy share link"}
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={onClose}
@@ -126,7 +209,11 @@ export function ViewGroupModal({ groupId, onClose, onEdit }: ViewGroupModalProps
         ) : (
           <p className="text-[13px] text-[#888]">Group not found.</p>
         )}
+        </div>
       </div>
     </>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(modal, document.body);
 }

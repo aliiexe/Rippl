@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import { Sparkles, MapPin } from "lucide-react";
@@ -11,6 +12,7 @@ import { CustomSelect } from "@/components/ui/custom-select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { triggerRemindersRefresh } from "@/lib/reminders-events";
 
 type Group = { id: string; name: string; emoji?: string };
 type EventItem = {
@@ -131,12 +133,15 @@ export default function EventsPage() {
         }),
       });
       if (!res.ok) throw new Error("Failed");
-      toast("Event created.");
+      const result = await res.json().catch(() => ({}));
+      const addedToCalendar = !!result?.event?.googleEventId;
+      toast(addedToCalendar ? "Event created and added to Google Calendar." : "Event created. Connect Google Calendar in Settings to sync to your calendar.");
       setTitle("");
       setDescription("");
       setStart(null);
       setEnd(null);
       setLocation("");
+      triggerRemindersRefresh();
       const data = await fetch("/api/events").then((r) => (r.ok ? r.json() : { events: [] }));
       setUpcoming(data.events ?? []);
     } catch {
@@ -315,33 +320,50 @@ function EventDetailModal({
   const formatTime = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   const start = event.start_time ?? event.date;
 
-  return (
+  const modal = (
     <>
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 animate-modal-overlay" onClick={onClose} />
-      <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-[500px] -translate-x-1/2 -translate-y-1/2 bg-[#161616] border border-[rgba(255,255,255,0.08)] rounded-[18px] p-6 shadow-xl animate-modal-content">
-        <h3 className="text-[16px] font-semibold text-[#f2f2f2]">{event.title}</h3>
-        {event.description && <p className="text-[13px] text-[#888] mt-2">{event.description}</p>}
-        <div className="mt-4 space-y-1 text-[13px] text-[#888]">
-          {start && <p>{formatDate(start)} · {formatTime(start)}{event.end_time && ` – ${formatTime(event.end_time)}`}</p>}
-          {event.location && <p>{event.location}</p>}
-          {groupName && <Badge variant="default" className="mt-2">{groupName}</Badge>}
-        </div>
-        <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-[rgba(255,255,255,0.06)]">
-          <button
-            type="button"
-            onClick={onClose}
-            className="bg-[#1e1e1e] hover:bg-[#262626] border border-[rgba(255,255,255,0.08)] text-[#f2f2f2] text-[13px] font-medium px-4 py-1.5 rounded-[8px]"
-          >
-            Close
-          </button>
-          <button
-            type="button"
-            className="bg-[#ff4000] hover:bg-[#e63900] text-white text-[13px] font-semibold px-4 py-1.5 rounded-[8px]"
-          >
-            Send Invite Again
-          </button>
+      <div
+        className="rippl-modal-overlay z-50 bg-black/60 backdrop-blur-sm animate-modal-overlay"
+        style={{ position: "fixed", inset: 0 }}
+        onClick={onClose}
+      />
+      <div
+        className="rippl-modal-center z-50 p-4 pointer-events-none"
+        style={{
+          position: "fixed",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <div className="w-full max-w-[500px] pointer-events-auto bg-[#161616] border border-[rgba(255,255,255,0.08)] rounded-[18px] p-6 shadow-xl animate-modal-content">
+          <h3 className="text-[16px] font-semibold text-[#f2f2f2]">{event.title}</h3>
+          {event.description && <p className="text-[13px] text-[#888] mt-2">{event.description}</p>}
+          <div className="mt-4 space-y-1 text-[13px] text-[#888]">
+            {start && <p>{formatDate(start)} · {formatTime(start)}{event.end_time && ` – ${formatTime(event.end_time)}`}</p>}
+            {event.location && <p>{event.location}</p>}
+            {groupName && <Badge variant="default" className="mt-2">{groupName}</Badge>}
+          </div>
+          <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-[rgba(255,255,255,0.06)]">
+            <button
+              type="button"
+              onClick={onClose}
+              className="bg-[#1e1e1e] hover:bg-[#262626] border border-[rgba(255,255,255,0.08)] text-[#f2f2f2] text-[13px] font-medium px-4 py-1.5 rounded-[8px]"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              className="bg-[#ff4000] hover:bg-[#e63900] text-white text-[13px] font-semibold px-4 py-1.5 rounded-[8px]"
+            >
+              Send Invite Again
+            </button>
+          </div>
         </div>
       </div>
     </>
   );
+  if (typeof document === "undefined") return null;
+  return createPortal(modal, document.body);
 }

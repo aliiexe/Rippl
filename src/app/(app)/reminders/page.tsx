@@ -1,17 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useTopbar } from "@/components/layout/topbar-context";
 import { CustomToggle } from "@/components/ui/custom-toggle";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { triggerRemindersRefresh } from "@/lib/reminders-events";
 
 type Reminder = {
   id: string;
   type: string;
   title: string;
+  detail?: string | null;
   recipients: string | number;
   scheduledFor: string | null;
   status: string;
@@ -23,6 +25,8 @@ const TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "event", label: "Event" },
 ];
 
+const POLL_INTERVAL_MS = 20_000;
+
 export default function RemindersPage() {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,18 +34,36 @@ export default function RemindersPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [clearSentOpen, setClearSentOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const prevRemindersRef = useRef<Reminder[]>([]);
   const { setAction } = useTopbar();
 
   const load = () => {
     fetch("/api/reminders")
       .then((r) => (r.ok ? r.json() : { reminders: [] }))
-      .then((d: { reminders: Reminder[] }) => setReminders(d.reminders ?? []))
+      .then((d: { reminders: Reminder[] }) => {
+        const next = d.reminders ?? [];
+        const prev = prevRemindersRef.current;
+        prevRemindersRef.current = next;
+        setReminders(next);
+        // Notify when a scheduled item was just sent (e.g. by cron)
+        next.forEach((r) => {
+          if (r.status !== "sent") return;
+          const wasScheduled = prev.find((p) => p.id === r.id)?.status === "scheduled";
+          if (wasScheduled) {
+            const label = r.type === "email" ? "Scheduled email sent" : "Reminder sent";
+            toast.success(`${label}: ${r.title}`);
+            triggerRemindersRefresh();
+          }
+        });
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   };
 
   useEffect(() => {
     load();
+    const interval = setInterval(load, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
   }, []);
 
   const filtered = reminders.filter((r) => {
@@ -99,8 +121,8 @@ export default function RemindersPage() {
   }
 
   return (
-    <div>
-      <div className="flex items-center gap-3 mb-5">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
         <CustomToggle
           options={[
             { value: "all", label: "All" },
@@ -111,37 +133,58 @@ export default function RemindersPage() {
           onChange={(v) => setTab(v as typeof tab)}
         />
         <CustomSelect value={typeFilter} onChange={setTypeFilter} options={TYPE_OPTIONS} placeholder="Type" />
-        <span className="ml-auto text-[12px] text-[#888]">{filtered.length} reminders</span>
+        <span className="ml-auto text-[12px] text-[#888]">
+          {filtered.length} reminder{filtered.length === 1 ? "" : "s"}
+        </span>
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-[12px] text-[#4a4a4a] text-center py-12">No reminders scheduled.</p>
+        <p className="text-[13px] text-[#4a4a4a] text-center py-12">
+          No reminders yet. Scheduled emails and event reminders will appear here.
+        </p>
       ) : (
-        <div className="border border-[rgba(255,255,255,0.06)] rounded-[10px] overflow-hidden">
-          <div className="grid grid-cols-[80px_2fr_1fr_1fr_90px_40px] items-center px-4 py-2 border-b border-[rgba(255,255,255,0.06)] text-[11px] font-medium text-[#4a4a4a] uppercase tracking-widest">
-            <span>Type</span>
-            <span>Title</span>
-            <span>Recipients</span>
-            <span>Scheduled For</span>
-            <span>Status</span>
-            <span></span>
-          </div>
+        <div className="space-y-3">
           {filtered.map((r) => (
             <div
               key={r.id}
-              className="grid grid-cols-[80px_2fr_1fr_1fr_90px_40px] items-center px-4 py-3.5 border-b border-[rgba(255,255,255,0.05)] hover:bg-[#161616] transition-all duration-150"
+              className="border border-[rgba(255,255,255,0.06)] rounded-[12px] px-4 py-3.5 bg-[#121212] hover:bg-[#161616] transition-colors duration-150"
             >
-              <Badge variant="default">{r.type === "event" ? "Event" : "Email"}</Badge>
-              <span className="text-[13px] font-medium text-[#f2f2f2] truncate">{r.title}</span>
-              <span className="text-[12px] text-[#888]">{typeof r.recipients === "number" ? `${r.recipients} people` : String(r.recipients)}</span>
-              <span className="text-[12px] text-[#4a4a4a] font-mono">{formatScheduled(r.scheduledFor)}</span>
-              <Badge variant={r.status === "sent" ? "success" : "accent"}>{r.status}</Badge>
-              <div>
+              <div className="flex items-start gap-3">
+                <Badge variant="default" className="mt-0.5">
+                  {r.type === "event" ? "Event" : "Email"}
+                </Badge>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[13px] font-semibold text-[#f2f2f2] truncate">{r.title}</p>
+                    <Badge variant={r.status === "sent" ? "success" : "accent"} className="text-[10px] px-2 py-0.5">
+                      {r.status}
+                    </Badge>
+                  </div>
+                  {r.detail && (
+                    <p className="text-[12px] text-[#888] mt-0.5 line-clamp-2">{r.detail}</p>
+                  )}
+                  <div className="flex flex-wrap gap-3 mt-2 text-[11px] text-[#888]">
+                    <span className="flex items-center gap-1">
+                      <span className="text-[#4a4a4a] uppercase tracking-wider">When</span>
+                      <span className="font-mono text-[11px] text-[#f2f2f2]">
+                        {formatScheduled(r.scheduledFor)}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className="text-[#4a4a4a] uppercase tracking-wider">Recipients</span>
+                      <span className="text-[#f2f2f2]">
+                        {typeof r.recipients === "number"
+                          ? `${r.recipients} person${r.recipients === 1 ? "" : "s"}`
+                          : String(r.recipients)}
+                      </span>
+                    </span>
+                  </div>
+                </div>
                 {r.status === "scheduled" && (
                   <button
                     type="button"
                     onClick={() => setDeleteId(r.id)}
-                    className="text-[14px] text-[#4a4a4a] hover:text-[#f87171] transition-colors"
+                    className="text-[16px] text-[#4a4a4a] hover:text-[#f87171] transition-colors ml-2"
                     aria-label="Delete"
                   >
                     ×

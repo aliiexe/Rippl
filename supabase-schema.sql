@@ -20,6 +20,15 @@ create table if not exists public.members (
   created_at timestamptz default now()
 );
 
+create table if not exists public.group_shares (
+  id uuid primary key default gen_random_uuid(),
+  group_id uuid references public.groups(id) on delete cascade,
+  from_user_id text not null,
+  token text not null unique,
+  expires_at timestamptz,
+  created_at timestamptz default now()
+);
+
 create table if not exists public.sent_emails (
   id uuid primary key default gen_random_uuid(),
   user_id text not null,
@@ -70,6 +79,7 @@ create table if not exists public.user_integrations (
 
 alter table public.groups enable row level security;
 alter table public.members enable row level security;
+alter table public.group_shares enable row level security;
 alter table public.sent_emails enable row level security;
 alter table public.events enable row level security;
 alter table public.reminders enable row level security;
@@ -80,6 +90,12 @@ on public.groups
 for all
 using (auth.uid()::text = user_id)
 with check (auth.uid()::text = user_id);
+
+create policy "Users can manage their own group_shares"
+on public.group_shares
+for all
+using (auth.uid()::text = from_user_id)
+with check (auth.uid()::text = from_user_id);
 
 create policy "Users can manage their own members"
 on public.members

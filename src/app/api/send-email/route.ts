@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createServerSupabaseClient } from "@/lib/supabase";
-import { getGmailIntegration } from "@/lib/integrations";
+import { getGmailIntegration, getCalendarIntegration } from "@/lib/integrations";
 import { getUserPreferences } from "@/lib/preferences";
 import { getValidClient } from "@/lib/google/auth";
 import { sendEmailViaGmail } from "@/lib/google/gmail";
+import { createCalendarEvent } from "@/lib/google/calendar";
 import { logActivity } from "@/lib/activity";
 
 export async function POST(req: NextRequest) {
@@ -18,6 +19,7 @@ export async function POST(req: NextRequest) {
     body: string;
     groupIds: string[];
     scheduleAt?: string | null;
+    bodyIncludesSignature?: boolean;
   };
   try {
     body = await req.json();
@@ -35,10 +37,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Select at least one group" }, { status: 400 });
   }
 
-  const prefs = await getUserPreferences(userId);
-  const sig = (prefs.email_signature ?? "").trim();
-  if (sig) {
-    emailBody = emailBody + (emailBody ? "\n\n" : "") + sig;
+  if (!body.bodyIncludesSignature) {
+    const prefs = await getUserPreferences(userId);
+    const sig = (prefs.email_signature ?? "").trim();
+    if (sig) {
+      emailBody = emailBody + (emailBody ? "\n\n" : "") + sig;
+    }
   }
 
   const supabase = createServerSupabaseClient();
@@ -90,10 +94,48 @@ export async function POST(req: NextRequest) {
       console.error(reminderError);
       return NextResponse.json({ error: "Failed to schedule" }, { status: 500 });
     }
+
+    // Add to Google Calendar so it appears on the user's calendar
+    let addedToCalendar = false;
+    const calendar = await getCalendarIntegration(userId);
+    if (calendar?.access_token) {
+      try {
+        const startIso = scheduledAt.toISOString();
+        const endDate = new Date(scheduledAt.getTime() + 15 * 60 * 1000);
+        const client = await getValidClient(
+          {
+            access_token: calendar.access_token,
+            refresh_token: calendar.refresh_token,
+            expiry_date: calendar.expiry_date,
+          },
+          async (newTokens) => {
+            const { upsertGoogleIntegration } = await import("@/lib/integrations");
+            await upsertGoogleIntegration(userId, "calendar", {
+              access_token: newTokens.access_token,
+              refresh_token: newTokens.refresh_token,
+              expiry_date: newTokens.expiry_date,
+            });
+          }
+        );
+        await createCalendarEvent(client, {
+          summary: `Scheduled email: ${subject.slice(0, 80)}${subject.length > 80 ? "…" : ""}`,
+          description: `Scheduled send to ${recipientCount} recipients via Rippl.`,
+          start: startIso,
+          end: endDate.toISOString(),
+          attendees: [],
+          sendUpdates: false,
+        });
+        addedToCalendar = true;
+      } catch (e) {
+        console.error("Calendar event for scheduled email failed:", e);
+      }
+    }
+
     return NextResponse.json({
       scheduled: true,
       message: "Email scheduled.",
       recipientCount,
+      addedToCalendar,
     });
   }
 
