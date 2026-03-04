@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase";
 import { getGmailIntegration } from "@/lib/integrations";
 import { getValidClient } from "@/lib/google/auth";
@@ -20,7 +20,17 @@ type ReminderRow = {
   } | null;
 };
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const secret = process.env.CRON_SECRET;
+  if (secret) {
+    const authHeader = req.headers.get("authorization");
+    const bearer = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const headerSecret = req.headers.get("x-cron-secret");
+    if (bearer !== secret && headerSecret !== secret) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  }
+
   const supabase = createServerSupabaseClient();
   const nowIso = new Date().toISOString();
 

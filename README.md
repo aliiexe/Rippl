@@ -25,6 +25,7 @@ Copy from `.env.example` and set these for **Production** (and optionally Previe
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
 | `GOOGLE_REDIRECT_URI` | **Must be** `https://your-app.vercel.app/api/auth/google/callback` |
 | `OPENROUTER_API_KEY` | From [OpenRouter](https://openrouter.ai) (for AI compose) |
+| `CRON_SECRET` | Optional. If set, cron endpoint requires `Authorization: Bearer <secret>` or `x-cron-secret` (for external cron or Vercel Pro). |
 
 ### 3. Clerk (production)
 
@@ -41,9 +42,21 @@ Copy from `.env.example` and set these for **Production** (and optionally Previe
 - Run the SQL in `supabase-schema.sql` in your Supabase project (SQL Editor) so tables (including `user_preferences`) exist.
 - Ensure RLS policies are in place (they are in the schema).
 
-### 6. Scheduled emails (cron)
+### 6. Scheduled emails (cron) — free plan
 
-- The repo includes `vercel.json` with a cron that calls `/api/cron/reminders` **every minute**. On Vercel, this runs automatically in production so scheduled emails are sent when their time is reached. No extra setup needed once deployed.
+Vercel Cron is paid (Pro only). On the **free Hobby plan**, scheduled emails are sent by an **external cron**:
+
+1. Sign up at **[cron-job.org](https://cron-job.org)** (free).
+2. Create a new cron job:
+   - **URL:** `https://your-app.vercel.app/api/cron/reminders`
+   - **Schedule:** every minute (`* * * * *` or “every 1 min”).
+   - **Request method:** GET.
+3. (Recommended) In **Vercel → Settings → Environment Variables**, add **`CRON_SECRET`** with a long random string (e.g. from [randomkeygen.com](https://randomkeygen.com)). In cron-job.org, add a **Request Header**:  
+   `Authorization` = `Bearer YOUR_CRON_SECRET`  
+   (or header name `x-cron-secret`, value = your secret). Then redeploy.
+4. Save the cron job. It will call your app every minute so scheduled emails are sent on time.
+
+If you don’t set up the external cron, scheduled emails will only run when someone has the app open in the browser (the app triggers the same logic every 15 seconds when open on localhost; in production you need the external cron).
 
 Redeploy after changing env vars. Users can then sign up, connect Gmail/Calendar, and use the app as their emailing tool.
 
