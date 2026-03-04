@@ -18,8 +18,10 @@ export async function POST(req: NextRequest) {
     subject: string;
     body: string;
     groupIds: string[];
+    excludeEmails?: string[];
     scheduleAt?: string | null;
     bodyIncludesSignature?: boolean;
+    attachments?: Array<{ filename: string; contentType: string; content: string }>;
   };
   try {
     body = await req.json();
@@ -30,6 +32,13 @@ export async function POST(req: NextRequest) {
   const subject = body.subject?.trim();
   let emailBody = body.body?.trim() ?? "";
   const groupIds = Array.isArray(body.groupIds) ? body.groupIds : [];
+  const attachments = Array.isArray(body.attachments)
+    ? body.attachments.filter(
+        (a): a is { filename: string; contentType: string; content: string } =>
+          typeof a?.filename === "string" && typeof a?.contentType === "string" && typeof a?.content === "string"
+      )
+    : [];
+
   if (!subject || !emailBody) {
     return NextResponse.json({ error: "Subject and body required" }, { status: 400 });
   }
@@ -68,8 +77,17 @@ export async function POST(req: NextRequest) {
       byEmail.set(m.email, (m.name?.trim() || m.email.split("@")[0] || "there").trim());
     }
   });
-  const recipients = Array.from(byEmail.entries()).map(([email, name]) => ({ email, name }));
+  const excludeSet = new Set(
+    Array.isArray(body.excludeEmails) ? body.excludeEmails.filter((e): e is string => typeof e === "string") : []
+  );
+  const recipients = Array.from(byEmail.entries())
+    .filter(([email]) => !excludeSet.has(email))
+    .map(([email, name]) => ({ email, name }));
   const recipientCount = recipients.length;
+
+  if (recipientCount === 0) {
+    return NextResponse.json({ error: "No recipients (all excluded or group empty)" }, { status: 400 });
+  }
 
   if (body.scheduleAt) {
     const scheduledAt = new Date(body.scheduleAt);
@@ -87,6 +105,7 @@ export async function POST(req: NextRequest) {
         subject,
         body: emailBody,
         groupIds: validGroupIds,
+        excludeEmails: excludeSet.size > 0 ? Array.from(excludeSet) : undefined,
         recipient_count: recipientCount,
       },
     });
@@ -171,6 +190,7 @@ export async function POST(req: NextRequest) {
         subject,
         body: personalizedBody,
         fromEmail,
+        attachments: attachments.length > 0 ? attachments : undefined,
       });
       sent++;
     } catch (e) {

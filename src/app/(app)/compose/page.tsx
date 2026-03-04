@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
@@ -14,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { triggerRemindersRefresh } from "@/lib/reminders-events";
+import { PreviewModal } from "./preview-modal";
 
 const COMPOSE_DRAFT_KEY = "rippl-compose-draft";
 
@@ -78,13 +78,17 @@ export default function ComposePage() {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [signature, setSignature] = useState("");
+  const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
   const [scheduleOn, setScheduleOn] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [scheduledAt, setScheduledAt] = useState<Date | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendProgress, setSendProgress] = useState<{ current: number; total: number } | null>(null);
   const [recipients, setRecipients] = useState<Recipient[]>([]);
+  const [excludedEmails, setExcludedEmails] = useState<Set<string>>(new Set());
   const sendRef = useRef<() => void>(() => {});
   const skipSaveRef = useRef(true);
   const initialSignatureRef = useRef<string>("");
@@ -144,6 +148,7 @@ export default function ComposePage() {
   useEffect(() => {
     if (selectedIds.size === 0) {
       setRecipients([]);
+      setExcludedEmails(new Set());
       return;
     }
     const ids = Array.from(selectedIds).join(",");
@@ -152,6 +157,7 @@ export default function ComposePage() {
       .then((d: { recipients?: Recipient[]; members?: Recipient[] }) => {
         const list = d.recipients ?? d.members ?? [];
         setRecipients(list);
+        setExcludedEmails(new Set());
       })
       .catch(() => setRecipients([]));
   }, [selectedIds]);
@@ -195,11 +201,24 @@ export default function ComposePage() {
     });
   };
 
-  const totalRecipients = groups.filter((g) => selectedIds.has(g.id)).reduce((s, g) => s + (g.memberCount ?? 0), 0);
+  const includedRecipients = recipients.filter((r) => !excludedEmails.has(r.email));
+  const totalRecipients = includedRecipients.length;
+  const toggleExcluded = (email: string) => {
+    setExcludedEmails((prev) => {
+      const next = new Set(prev);
+      if (next.has(email)) next.delete(email);
+      else next.add(email);
+      return next;
+    });
+  };
 
   async function handleSend() {
     if (selectedIds.size === 0) {
       toast("Select at least one group.");
+      return;
+    }
+    if (totalRecipients === 0) {
+      toast("Include at least one recipient (click excluded names to add them back).");
       return;
     }
     if (!subject.trim()) {
@@ -215,6 +234,26 @@ export default function ComposePage() {
       return;
     }
     const combinedBody = body.trim() + (signature.trim() ? "\n\n" + signature.trim() : "");
+    const totalAttachMb = attachmentFiles.reduce((acc, f) => acc + f.size, 0) / (1024 * 1024);
+    if (totalAttachMb > 20) {
+      toast("Attachments total over 20 MB.");
+      return;
+    }
+    const attachmentsPayload = await Promise.all(
+      attachmentFiles.map(
+        (file): Promise<{ filename: string; contentType: string; content: string }> =>
+          new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = reader.result as string;
+              const base64 = result.includes(",") ? result.split(",")[1] ?? "" : result;
+              resolve({ filename: file.name, contentType: file.type || "application/octet-stream", content: base64 });
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          })
+      )
+    );
     setSending(true);
     setSendProgress({ current: 0, total: totalRecipients });
     try {
@@ -225,7 +264,9 @@ export default function ComposePage() {
           subject: subject.trim(),
           body: combinedBody,
           bodyIncludesSignature: true,
+          attachments: attachmentsPayload.length > 0 ? attachmentsPayload : undefined,
           groupIds: Array.from(selectedIds),
+          excludeEmails: excludedEmails.size > 0 ? Array.from(excludedEmails) : undefined,
           scheduleAt: scheduleOn && scheduledAt ? scheduledAt.toISOString() : null,
         }),
       });
@@ -254,6 +295,8 @@ export default function ComposePage() {
       }
       setSubject("");
       setBody("");
+      setAttachmentFiles([]);
+      setExcludedEmails(new Set());
       setScheduleOn(false);
       setScheduledAt(null);
       clearDraft();
@@ -266,7 +309,7 @@ export default function ComposePage() {
   }
   sendRef.current = handleSend;
 
-  const summaryNames = recipients.map((r) => r.name || r.email.split("@")[0]).filter(Boolean);
+  const summaryNames = includedRecipients.map((r) => r.name || r.email.split("@")[0]).filter(Boolean);
   const summaryLine =
     summaryNames.length === 0
       ? ""
@@ -402,6 +445,13 @@ export default function ComposePage() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={() => setOptionsOpen(true)}
+                className="text-[13px] font-medium text-[#888] hover:text-[#f2f2f2] transition-colors"
+              >
+                Attachments
+              </button>
+              <button
+                type="button"
                 onClick={() => setPreviewOpen(true)}
                 className="text-[13px] font-medium text-[#888] hover:text-[#f2f2f2] transition-colors"
               >
@@ -422,11 +472,12 @@ export default function ComposePage() {
 
       <div className="bg-[#161616] border border-[rgba(255,255,255,0.06)] rounded-[18px] p-5 flex flex-col min-h-0">
         <h3 className="text-[13px] font-semibold text-[#f2f2f2]">
-          Recipients <span className="text-[12px] font-normal text-[#888]">({recipients.length})</span>
+          Recipients <span className="text-[12px] font-normal text-[#888]">({totalRecipients}{excludedEmails.size > 0 ? ` · ${excludedEmails.size} excluded` : ""})</span>
         </h3>
-        {recipients.length > 0 && (
+        {includedRecipients.length > 0 && (
           <p className="text-[12px] text-[#888] leading-relaxed mt-1">{summaryLine}</p>
         )}
+        <p className="text-[11px] text-[#4a4a4a] mt-0.5">Click a name to exclude from this email.</p>
         <div className="border-b border-[rgba(255,255,255,0.06)] mb-3 mt-2" />
         <div className="max-h-[400px] overflow-y-auto space-y-0 flex-1 min-h-0">
           {selectedIds.size === 0 ? (
@@ -434,78 +485,64 @@ export default function ComposePage() {
           ) : recipients.length === 0 ? (
             <p className="text-[12px] text-[#4a4a4a] text-center py-8">No recipients</p>
           ) : (
-            recipients.map((r, i) => (
-              <div
-                key={i}
-                className="flex items-center justify-between py-2.5 border-b border-[rgba(255,255,255,0.05)]"
-              >
-                <div className="min-w-0">
-                  <p className="text-[13px] font-medium text-[#f2f2f2] truncate">{r.name || "—"}</p>
-                  <p className="text-[11px] text-[#4a4a4a] font-mono truncate">{r.email}</p>
-                </div>
-                {r.groupName && <Badge variant="default" className="flex-shrink-0 ml-2">{r.groupName}</Badge>}
-              </div>
-            ))
+            recipients.map((r, i) => {
+              const excluded = excludedEmails.has(r.email);
+              return (
+                <button
+                  key={r.email}
+                  type="button"
+                  onClick={() => toggleExcluded(r.email)}
+                  className={`w-full text-left flex items-center justify-between py-2.5 border-b border-[rgba(255,255,255,0.05)] transition-colors rounded px-1 -mx-1 ${excluded ? "opacity-50 bg-[rgba(255,255,255,0.03)]" : "hover:bg-[rgba(255,255,255,0.04)]"}`}
+                >
+                  <div className="min-w-0">
+                    <p className={`text-[13px] font-medium truncate ${excluded ? "text-[#666] line-through" : "text-[#f2f2f2]"}`}>{r.name || "—"}</p>
+                    <p className="text-[11px] text-[#4a4a4a] font-mono truncate">{r.email}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                    {excluded && <span className="text-[10px] font-medium text-[#888] uppercase">Excluded</span>}
+                    {r.groupName && <Badge variant="default">{r.groupName}</Badge>}
+                  </div>
+                </button>
+              );
+            })
           )}
         </div>
       </div>
 
-      {previewOpen && (() => {
-        const combinedBody = body.trim() + (signature.trim() ? "\n\n" + signature.trim() : "");
-        const modal = (
-          <>
-            <div
-              className="rippl-modal-overlay z-50 bg-black/60 backdrop-blur-sm animate-modal-overlay"
-              style={{ position: "fixed", inset: 0 }}
-              onClick={() => setPreviewOpen(false)}
-            />
-            <div
-              className="rippl-modal-center z-50 p-4 pointer-events-none"
-              style={{
-                position: "fixed",
-                inset: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <div className="w-full max-w-[560px] max-h-[90vh] overflow-y-auto pointer-events-auto bg-[#161616] border border-[rgba(255,255,255,0.08)] rounded-[18px] p-6 shadow-xl">
-                <h3 className="text-[16px] font-semibold text-[#f2f2f2]">Email preview</h3>
-                <p className="text-[12px] text-[#888] mt-0.5">This is how your email will look when sent.</p>
-                <div className="mt-4 space-y-4">
-                  <div>
-                    <p className="text-[11px] font-medium text-[#4a4a4a] uppercase tracking-wider mb-1">Subject</p>
-                    <p className="text-[14px] text-[#f2f2f2]">{subject || "(no subject)"}</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-medium text-[#4a4a4a] uppercase tracking-wider mb-1">To</p>
-                    <p className="text-[13px] text-[#888]">{recipients.length} recipient{recipients.length !== 1 ? "s" : ""}</p>
-                    {recipients.length > 0 && (
-                      <p className="text-[12px] text-[#888] mt-0.5 truncate">{summaryLine}</p>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-medium text-[#4a4a4a] uppercase tracking-wider mb-1">Message</p>
-                    <div className="bg-[#1e1e1e] border border-[rgba(255,255,255,0.06)] rounded-[8px] px-3 py-3 text-[13px] text-[#f2f2f2] whitespace-pre-wrap min-h-[120px]">
-                      {combinedBody || "(empty)"}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex justify-end mt-6 pt-4 border-t border-[rgba(255,255,255,0.06)]">
-                  <button
-                    type="button"
-                    onClick={() => setPreviewOpen(false)}
-                    className="bg-[#1e1e1e] hover:bg-[#262626] border border-[rgba(255,255,255,0.08)] text-[#f2f2f2] text-[13px] font-medium px-4 py-1.5 rounded-[8px]"
-                  >
-                    Close
-                  </button>
-                </div>
+      {previewOpen ? (
+        <PreviewModal
+          subject={subject}
+          summaryLine={summaryLine}
+          recipientsLength={totalRecipients}
+          combinedBody={body.trim() + (signature.trim() ? "\n\n" + signature.trim() : "")}
+          onClose={() => setPreviewOpen(false)}
+        />
+      ) : null}
+
+      {optionsOpen ? (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={() => setOptionsOpen(false)} aria-hidden />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+            <div className="w-full max-w-md bg-[#161616] border border-[rgba(255,255,255,0.08)] rounded-[18px] p-6 shadow-xl pointer-events-auto" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-[16px] font-semibold text-[#f2f2f2]">Attachments</h3>
+              <p className="text-[12px] text-[#888] mt-0.5">Add files or images to your email.</p>
+              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(e) => { const files = Array.from(e.target.files ?? []); setAttachmentFiles((prev) => [...prev, ...files]); e.target.value = ""; }} />
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <button type="button" onClick={() => fileInputRef.current?.click()} className="text-[12px] font-medium text-[#ff4000] hover:text-[#e63900] border border-[rgba(255,64,0,0.4)] rounded-lg px-3 py-1.5">+ Add files or images</button>
+                {attachmentFiles.map((file, i) => (
+                  <span key={i} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#1e1e1e] border border-[rgba(255,255,255,0.06)] text-[12px] text-[#f2f2f2]">
+                    <span className="truncate max-w-[140px]">{file.name}</span>
+                    <button type="button" onClick={() => setAttachmentFiles((prev) => prev.filter((_, j) => j !== i))} className="text-[#4a4a4a] hover:text-[#f87171]" aria-label="Remove">×</button>
+                  </span>
+                ))}
+              </div>
+              <div className="flex justify-end mt-6 pt-4 border-t border-[rgba(255,255,255,0.06)]">
+                <button type="button" onClick={() => setOptionsOpen(false)} className="px-4 py-1.5 rounded-lg bg-[#1e1e1e] hover:bg-[#262626] border border-[rgba(255,255,255,0.08)] text-[#f2f2f2] text-[13px] font-medium">Close</button>
               </div>
             </div>
-          </>
-        );
-        return typeof document !== "undefined" ? createPortal(modal, document.body) : null;
-      })()}
+          </div>
+        </>
+      ) : null}
 
       {aiOpen && (
         <AISheet

@@ -16,6 +16,7 @@ type ReminderRow = {
     subject?: string;
     body?: string;
     groupIds?: string[];
+    excludeEmails?: string[];
     recipient_count?: number;
   } | null;
 };
@@ -112,7 +113,10 @@ export async function GET(req: NextRequest) {
           byEmail.set(m.email, (m.name?.trim() || m.email.split("@")[0] || "there").trim());
         }
       });
-      const recipients = Array.from(byEmail.entries()).map(([email, name]) => ({ email, name }));
+      const excludeSet = new Set(Array.isArray(payload.excludeEmails) ? payload.excludeEmails : []);
+      const recipients = Array.from(byEmail.entries())
+        .filter(([email]) => !excludeSet.has(email))
+        .map(([email, name]) => ({ email, name }));
       if (recipients.length === 0) {
         continue;
       }
