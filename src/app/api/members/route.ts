@@ -36,6 +36,15 @@ export async function POST(req: NextRequest) {
 
   if (error) {
     console.error(error);
+    const code = (error as { code?: string; message?: string } | null)?.code;
+    const message = (error as { message?: string } | null)?.message?.toLowerCase() ?? "";
+    const isUniqueViolation =
+      code === "23505" || message.includes("duplicate key value") || message.includes("unique constraint");
+
+    if (isUniqueViolation) {
+      return NextResponse.json({ error: "member_already_exists" }, { status: 409 });
+    }
+
     return NextResponse.json({ error: "Failed to add member" }, { status: 500 });
   }
 

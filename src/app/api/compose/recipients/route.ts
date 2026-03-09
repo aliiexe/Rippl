@@ -35,12 +35,31 @@ export async function GET(req: NextRequest) {
     .in("group_id", validIds);
 
   const list = (members ?? []) as { name: string | null; email: string; group_id: string }[];
-  const names = list.map((m) => (m.name?.trim() || m.email || "").trim()).filter(Boolean);
-  const memberList = list.map((m) => ({
-    name: (m.name?.trim() || m.email || "").trim(),
-    email: m.email,
-    groupName: groupNamesById[m.group_id] ?? "",
-  }));
+
+  // Deduplicate by email so each person only appears once,
+  // even if they are in multiple selected groups.
+  const dedupByEmail = new Map<string, { name: string; email: string; groupName: string }>();
+
+  for (const m of list) {
+    const name = (m.name?.trim() || m.email || "").trim();
+    const email = (m.email || "").trim();
+    if (!email) continue;
+    const groupName = groupNamesById[m.group_id] ?? "";
+
+    const existing = dedupByEmail.get(email);
+    if (!existing) {
+      dedupByEmail.set(email, { name, email, groupName });
+    } else {
+      let combinedGroupName = existing.groupName || "";
+      if (groupName && !combinedGroupName.includes(groupName)) {
+        combinedGroupName = combinedGroupName ? `${combinedGroupName} · ${groupName}` : groupName;
+      }
+      dedupByEmail.set(email, { ...existing, groupName: combinedGroupName });
+    }
+  }
+
+  const memberList = Array.from(dedupByEmail.values());
+  const names = memberList.map((m) => (m.name || m.email).trim()).filter(Boolean);
 
   return NextResponse.json({
     count: memberList.length,

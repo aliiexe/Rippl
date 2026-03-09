@@ -498,9 +498,15 @@ export default function ComposePage() {
                     <p className={`text-[13px] font-medium truncate ${excluded ? "text-[#666] line-through" : "text-[#f2f2f2]"}`}>{r.name || "—"}</p>
                     <p className="text-[11px] text-[#4a4a4a] font-mono truncate">{r.email}</p>
                   </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                    {excluded && <span className="text-[10px] font-medium text-[#888] uppercase">Excluded</span>}
-                    {r.groupName && <Badge variant="default">{r.groupName}</Badge>}
+                  <div className="flex items-center gap-1.5 ml-2 overflow-hidden">
+                    {excluded && (
+                      <span className="text-[10px] font-medium text-[#888] uppercase whitespace-nowrap">Excluded</span>
+                    )}
+                    {r.groupName && (
+                      <Badge variant="default" className="max-w-[140px] truncate">
+                        {r.groupName}
+                      </Badge>
+                    )}
                   </div>
                 </button>
               );

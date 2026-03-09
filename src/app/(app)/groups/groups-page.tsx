@@ -366,11 +366,19 @@ function GroupFormModal({
         }
         for (const m of members) {
           if (!m.email.trim()) continue;
-          await fetch("/api/members", {
+          const resMember = await fetch("/api/members", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ groupId: group.id, name: m.name.trim() || null, email: m.email.trim() }),
           });
+          if (!resMember.ok) {
+            const data = (await resMember.json().catch(() => ({}))) as { error?: string };
+            if (resMember.status === 409 && data.error === "member_already_exists") {
+              toast(`"${m.email.trim()}" is already in one of your groups.`);
+            } else {
+              throw new Error("Member insert failed");
+            }
+          }
         }
         toast("Group updated.");
       } else {
@@ -383,11 +391,19 @@ function GroupFormModal({
         const { group: newGroup } = (await res.json()) as { group: { id: string } };
         for (const m of members) {
           if (!m.email.trim()) continue;
-          await fetch("/api/members", {
+          const resMember = await fetch("/api/members", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ groupId: newGroup.id, name: m.name.trim() || null, email: m.email.trim() }),
           });
+          if (!resMember.ok) {
+            const data = (await resMember.json().catch(() => ({}))) as { error?: string };
+            if (resMember.status === 409 && data.error === "member_already_exists") {
+              toast(`"${m.email.trim()}" is already in one of your groups.`);
+            } else {
+              throw new Error("Member insert failed");
+            }
+          }
         }
         toast("Group created.");
       }
